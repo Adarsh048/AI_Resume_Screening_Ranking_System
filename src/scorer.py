@@ -65,21 +65,38 @@ def score_ai_depth(resume: ParsedResume) -> tuple[float, list[str]]:
     Returns (score, strength_notes).
     Penalty: −5 to −15 for shallow wrapper-only projects.
     """
+    from src.eligibility import partition_resume_sections
+
     text = resume.raw_text.lower()
     total = 0.0
     notes: list[str] = []
 
-    # Deep signals: each adds its weight, but we cap contribution
+    skills_lines, non_skills_lines = partition_resume_sections(resume.raw_text)
+    project_sources = list(resume.project_descriptions) + non_skills_lines
+    project_text = " ".join(project_sources).lower()
+
+    # Deep signals: prioritize evidence in project descriptions over keyword lists
     for signal, weight in AI_DEEP_SIGNALS.items():
-        if signal in text:
+        in_proj = signal in project_text
+        in_text = signal in text
+        if in_proj:
             total += weight
             notes.append(f"Deep signal: {signal} (+{weight})")
+        elif in_text:
+            # Keyword match outside project descriptions receives reduced credit
+            discounted = round(weight * 0.5, 1)
+            total += discounted
+            notes.append(f"Deep signal (skills only): {signal} (+{discounted})")
 
     # Standard signals: add but cap contribution so they don't crowd out depth
     standard_score = 0.0
     for signal, weight in AI_STANDARD_SIGNALS.items():
-        if signal in text:
+        in_proj = signal in project_text
+        in_text = signal in text
+        if in_proj:
             standard_score += weight
+        elif in_text:
+            standard_score += weight * 0.5
     standard_score = min(standard_score, 10.0)  # cap standard signals at 10
     total += standard_score
 

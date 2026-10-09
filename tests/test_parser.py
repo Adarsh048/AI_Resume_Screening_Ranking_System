@@ -231,3 +231,41 @@ class TestParseResumeEdgeCases:
                 result = parse_resume(mock_path)
         assert result.file_name == "candidate_99.pdf"
         assert result.parse_error is not None
+
+    def test_legacy_doc_format_unsupported_message(self):
+        from src.parser import parse_resume
+        mock_path = MagicMock(spec=Path)
+        mock_path.name = "resume.doc"
+        mock_path.suffix = ".doc"
+        result = parse_resume(mock_path)
+        assert result.parse_error is not None
+        assert "Legacy .doc format is not supported" in result.parse_error
+
+    def test_find_signals_word_boundary_isolation(self):
+        from src.parser import _find_signals
+        text = "Graduated from IIT Kharagpur, completed Capgemini training, deployed on high-throughput platform."
+        signals = _find_signals(text, ["rag", "gemini", "orm", "aws"])
+        assert "rag" not in signals
+        assert "gemini" not in signals
+        assert "orm" not in signals
+        assert "aws" not in signals
+
+    def test_find_signals_matches_legitimate_keywords(self):
+        from src.parser import _find_signals
+        text = "Built a RAG pipeline with LangChain, using ORM with SQLAlchemy and deployed on AWS."
+        signals = _find_signals(text, ["rag", "langchain", "orm", "aws", "docker"])
+        assert "rag" in signals
+        assert "langchain" in signals
+        assert "orm" in signals
+        assert "aws" in signals
+        assert "docker" not in signals
+
+    def test_empty_document_handling(self):
+        from src.parser import parse_resume
+        mock_path = MagicMock(spec=Path)
+        mock_path.name = "empty.txt"
+        mock_path.suffix = ".txt"
+        with patch("src.parser._extract_txt", return_value="   "):
+            result = parse_resume(mock_path)
+        assert result.parse_error == "Empty or unreadable document"
+

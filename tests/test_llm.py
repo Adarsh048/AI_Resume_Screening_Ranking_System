@@ -102,3 +102,36 @@ class TestLLMConfiguration:
                 assert llm_used is True
                 assert adjustment == 2.0
                 assert summary == mock_response["project_summary"]
+
+    def test_adjustment_outside_allowed_range_rejected(self):
+        # Out-of-bounds adjustment (e.g. +10) must be rejected by validator
+        invalid_response = {
+            "project_summary": "Attempted arbitrary score inflation.",
+            "ai_depth_adjustment": 10.0,
+            "depth_rationale": "Over maximum allowed bonus.",
+        }
+        with patch("src.llm_adapter._openai_available", True), \
+             patch("src.llm_adapter._call_openai", return_value=invalid_response):
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-fake-test-key"}):
+                summary, adjustment, llm_used = evaluate_with_llm(
+                    project_descriptions=["Some project."],
+                    ai_signals=["ai"],
+                    enabled=True,
+                )
+                assert llm_used is False
+                assert adjustment == 0.0
+
+    def test_malformed_llm_response_handled_gracefully(self):
+        # Missing required fields
+        malformed_response = {"wrong_field": 123}
+        with patch("src.llm_adapter._openai_available", True), \
+             patch("src.llm_adapter._call_openai", return_value=malformed_response):
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "sk-fake-test-key"}):
+                summary, adjustment, llm_used = evaluate_with_llm(
+                    project_descriptions=["Some project."],
+                    ai_signals=["ai"],
+                    enabled=True,
+                )
+                assert llm_used is False
+                assert adjustment == 0.0
+

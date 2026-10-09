@@ -154,3 +154,52 @@ class TestGitHubEnrichment:
             assert p1 is p2
             # Requests made only for the first call
             assert mock_get.call_count == 3
+
+    def test_github_url_prefix_stripped_cleanly(self):
+        user_resp = MagicMock()
+        user_resp.status_code = 404
+        user_resp.headers = {"x-ratelimit-remaining": "50"}
+
+        with patch("requests.get", return_value=user_resp):
+            profile = enrich_github("https://github.com/cleanuser/")
+            assert profile.username == "cleanuser"
+            assert profile.profile_url == "https://github.com/cleanuser"
+
+    def test_github_token_header_injected_when_present(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", "mock_gh_token_123")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        mock_resp.headers = {"x-ratelimit-remaining": "4999"}
+
+        with patch("requests.get", return_value=mock_resp) as mock_get:
+            enrich_github("tokenuser")
+            args, kwargs = mock_get.call_args
+            headers = kwargs.get("headers", {})
+            assert headers.get("Authorization") == "Bearer mock_gh_token_123"
+
+    def test_github_score_capped_at_ten(self):
+        user_resp = MagicMock()
+        user_resp.status_code = 200
+        user_resp.headers = {"x-ratelimit-remaining": "50"}
+        user_resp.json.return_value = {"public_repos": 100}
+
+        # 500 pushes
+        events_resp = MagicMock()
+        events_resp.status_code = 200
+        events_resp.headers = {"x-ratelimit-remaining": "49"}
+        events_resp.json.return_value = [{"type": "PushEvent", "created_at": "2026-09-01T00:00:00Z"}] * 500
+
+        # Many maintained AI and Python repos
+        repos_resp = MagicMock()
+        repos_resp.status_code = 200
+        repos_resp.headers = {"x-ratelimit-remaining": "48"}
+        repos_resp.json.return_value = [
+            {"name": f"ai-repo-{i}", "language": "Python", "topics": ["langchain", "rag"], "updated_at": "2026-09-01T00:00:00Z"}
+            for i in range(20)
+        ]
+
+        with patch("requests.get", side_effect=[user_resp, events_resp, repos_resp]):
+            profile = enrich_github("superdev")
+            assert profile.score <= 10.0
+            assert profile.score == 10.0
+

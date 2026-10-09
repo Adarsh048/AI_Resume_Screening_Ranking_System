@@ -31,7 +31,7 @@ from src.scorer import compute_scores, derive_strengths_and_concerns
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
 
 def _discover_resumes(input_dir: Path) -> list[Path]:
@@ -206,6 +206,13 @@ def run_pipeline(
         json.dump(output, fh, indent=2, ensure_ascii=False)
 
     logger.info("Results written to %s", output_path)
+
+    # Automatically synchronize to frontend/public/results.json so UI always has latest results
+    frontend_public_target = Path("frontend/public/results.json")
+    if frontend_public_target.parent.exists() and output_path.resolve() != frontend_public_target.resolve():
+        with open(frontend_public_target, "w", encoding="utf-8") as fh:
+            json.dump(output, fh, indent=2, ensure_ascii=False)
+        logger.info("Synchronized results to %s", frontend_public_target)
     _print_summary(eligible, stats)
 
 

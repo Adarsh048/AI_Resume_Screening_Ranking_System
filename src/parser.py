@@ -132,14 +132,18 @@ def _extract_txt(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 def _find_signals(text: str, keywords: list[str]) -> list[str]:
-    """Return matched keywords found in text (case-insensitive, deduplicated)."""
-    lower = text.lower()
+    """Return matched keywords found in text (case-insensitive, deduplicated, word-bounded)."""
     found = []
     seen: set[str] = set()
     for kw in keywords:
-        if kw.lower() in lower and kw.lower() not in seen:
-            found.append(kw)
-            seen.add(kw.lower())
+        kw_clean = kw.strip()
+        if not kw_clean:
+            continue
+        # Use word boundaries so substrings like 'rag' in 'Kharagpur' or 'orm' in 'platform' are not matched
+        pattern = re.compile(r"\b" + re.escape(kw_clean) + r"\b", re.IGNORECASE)
+        if pattern.search(text) and kw_clean.lower() not in seen:
+            found.append(kw_clean)
+            seen.add(kw_clean.lower())
     return found
 
 
@@ -320,8 +324,11 @@ def parse_resume(path: Path) -> ParsedResume:
                     "%s: pdfplumber failed (%s), trying pypdf", path.name, primary_err
                 )
                 raw = _extract_pdf_pypdf(path)
-        elif ext in {".docx", ".doc"}:
+        elif ext == ".docx":
             raw = _extract_docx(path)
+        elif ext == ".doc":
+            resume.parse_error = "Legacy .doc format is not supported; please convert to .docx or .pdf"
+            return resume
         elif ext == ".txt":
             raw = _extract_txt(path)
         else:

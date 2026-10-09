@@ -303,3 +303,91 @@ class TestComputeScores:
         # For tied scores (c1, c2), sorted alphabetically by file name (c2 then c1)
         assert candidates[1].file_name == "candidate_a.pdf"
         assert candidates[2].file_name == "candidate_b.pdf"
+
+    def test_ineligible_candidates_remain_unranked(self):
+        from src.models import CandidateResult
+
+        eligible_candidate = CandidateResult(file_name="eligible.pdf")
+        eligible_candidate.scores.ai_rag_depth = 25.0
+        eligible_candidate.eligibility.is_eligible = True
+
+        ineligible_candidate = CandidateResult(file_name="ineligible.pdf")
+        ineligible_candidate.scores.ai_rag_depth = 0.0
+        ineligible_candidate.eligibility.is_eligible = False
+
+        results = [eligible_candidate, ineligible_candidate]
+        eligible_only = [c for c in results if c.eligibility.is_eligible]
+        eligible_only.sort(key=lambda r: (-r.scores.total, r.file_name))
+        for rank, c in enumerate(eligible_only, start=1):
+            c.rank = rank
+
+        assert eligible_candidate.rank == 1
+        assert ineligible_candidate.rank is None
+
+    def test_score_caps_and_boundary_conditions(self):
+        # Create an exaggerated resume with every possible keyword repeated multiple times
+        huge_text = (
+            "Python fastapi flask django asyncio pydantic sqlalchemy pytest celery postgresql redis orm "
+            "langgraph langchain llamaindex rag vector store embeddings pinecone weaviate chroma tool calling "
+            "docker kubernetes terraform aws gcp azure ci/cd github actions react typescript node.js "
+            "unit test caching rate limit logging observability circuit breaker microservice kafka " * 5
+        )
+        resume = make_resume(huge_text, projects=[huge_text])
+        github = make_github(score=15.0)  # Over-the-limit raw github score
+        scores, _, _ = compute_scores(resume, make_eligibility(), github)
+
+        # Confirm strict category caps
+        assert scores.ai_rag_depth <= 40.0
+        assert scores.python_backend <= 30.0
+        assert scores.cloud_deployment <= 15.0
+        assert scores.github_activity <= 10.0
+        assert scores.engineering_depth <= 5.0
+        assert scores.total <= 100.0
+        assert scores.total == round(
+            scores.ai_rag_depth + scores.python_backend + scores.cloud_deployment + scores.github_activity + scores.engineering_depth,
+            2
+        )
+
+    def test_unsupported_ai_claims_in_skills_only_receive_discounted_credit(self):
+        # Resume A lists AI signals only under SKILLS
+        text_a = """
+        SKILLS
+        LangGraph, LangChain, RAG, Pinecone, Embeddings
+        """
+        resume_a = make_resume(text_a, projects=[])
+
+        # Resume B lists the same AI signals in PROJECT descriptions
+        text_b = """
+        PROJECTS
+        AI Search Engine:
+        Built LangGraph workflow with LangChain and RAG using Pinecone and Embeddings.
+        """
+        resume_b = make_resume(text_b, projects=["Built LangGraph workflow with LangChain and RAG using Pinecone and Embeddings."])
+
+        score_a, _ = score_ai_depth(resume_a)
+        score_b, _ = score_ai_depth(resume_b)
+
+        # Projects section evidence receives full credit, skills list alone receives discounted credit
+        assert score_b > score_a
+
+    def test_llm_adjustment_bounds_and_strength_consistency(self):
+        from src.scorer import derive_strengths_and_concerns
+
+        breakdown = ScoreBreakdown(
+            ai_rag_depth=38.0,
+            python_backend=25.0,
+            cloud_deployment=10.0,
+            github_activity=5.0,
+            engineering_depth=3.0,
+        )
+        # Apply +5 adjustment (simulating LLM output)
+        breakdown.ai_rag_depth = min(max(breakdown.ai_rag_depth + 5.0, 0.0), 40.0)
+        breakdown.clamp()
+
+        assert breakdown.ai_rag_depth == 40.0
+        assert breakdown.total <= 100.0
+
+        strengths, concerns = derive_strengths_and_concerns(breakdown)
+        assert any("Strong AI" in s for s in strengths)
+        assert not any("Limited AI" in c for c in concerns)
+

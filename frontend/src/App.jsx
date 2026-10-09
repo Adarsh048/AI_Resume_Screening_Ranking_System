@@ -165,8 +165,11 @@ export default function App() {
 
   const stats = data?.stats || {
     total_discovered: allCandidates.length,
+    successfully_parsed: allCandidates.length,
     eligible_count: (data?.eligible_candidates || []).length,
     rejected_count: (data?.rejected_candidates || []).length,
+    failed_count: 0,
+    duplicate_count: 0,
   };
 
   const topCandidate = (data?.eligible_candidates || [])[0];
@@ -182,7 +185,9 @@ export default function App() {
             <p>
               <span>Batch Evaluation</span>
               <span>•</span>
-              <span>{allCandidates.length} resumes evaluated</span>
+              <span>{stats.total_discovered} resumes discovered</span>
+              <span>•</span>
+              <span>{stats.successfully_parsed ?? allCandidates.length} parsed</span>
               {data?.generated_at && (
                 <>
                   <span>•</span>
@@ -194,6 +199,27 @@ export default function App() {
         </div>
       </header>
 
+      {/* Parsing Alert Banner if failures occurred */}
+      {stats.failed_count > 0 && (
+        <div style={{
+          background: '#fef2f2',
+          border: '1px solid #fecaca',
+          borderRadius: 'var(--radius-md)',
+          padding: '12px 16px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          color: '#991b1b',
+          fontSize: '13px'
+        }}>
+          <AlertTriangle size={18} color="#ef4444" style={{ flexShrink: 0 }} />
+          <span>
+            <strong>Extraction Notice:</strong> {stats.failed_count} out of {stats.total_discovered} file{stats.failed_count > 1 ? 's' : ''} failed extraction or contained unreadable formats. Successfully parsed: {stats.successfully_parsed}.
+          </span>
+        </div>
+      )}
+
       {/* Overview Stat Cards */}
       <div className="stats-grid">
         <div className="stat-card">
@@ -202,7 +228,17 @@ export default function App() {
             <Users size={16} className="stat-icon" />
           </div>
           <div className="stat-value">{stats.total_discovered}</div>
-          <div className="stat-sub">100% processed without errors</div>
+          <div className="stat-sub">
+            {stats.failed_count > 0 ? (
+              <span style={{ color: '#ef4444', fontWeight: 600 }}>
+                {stats.failed_count} unreadable / failed file{stats.failed_count > 1 ? 's' : ''}
+              </span>
+            ) : stats.total_discovered > 0 ? (
+              <span>All {stats.successfully_parsed || stats.total_discovered} resumes parsed successfully</span>
+            ) : (
+              <span>No resumes discovered</span>
+            )}
+          </div>
         </div>
 
         <div className="stat-card">
@@ -684,10 +720,50 @@ export default function App() {
                           </span>
                         )}
                       </div>
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        Status: {selectedCandidate.github.enrichment_status || 'N/A'}
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 500,
+                          padding: '3px 8px',
+                          borderRadius: '10px',
+                          background:
+                            selectedCandidate.github.enrichment_status === 'success'
+                              ? '#ecfdf5'
+                              : selectedCandidate.github.enrichment_status === 'rate_limited'
+                              ? '#fffbeb'
+                              : selectedCandidate.github.enrichment_status === 'not_found'
+                              ? '#fef2f2'
+                              : 'var(--bg-card)',
+                          color:
+                            selectedCandidate.github.enrichment_status === 'success'
+                              ? '#065f46'
+                              : selectedCandidate.github.enrichment_status === 'rate_limited'
+                              ? '#92400e'
+                              : selectedCandidate.github.enrichment_status === 'not_found'
+                              ? '#991b1b'
+                              : 'var(--text-muted)',
+                          border: '1px solid currentColor',
+                        }}
+                      >
+                        {selectedCandidate.github.enrichment_status === 'success'
+                          ? 'Verified Profile'
+                          : selectedCandidate.github.enrichment_status === 'rate_limited'
+                          ? 'Rate Limited'
+                          : selectedCandidate.github.enrichment_status === 'not_found'
+                          ? 'User Not Found (404)'
+                          : selectedCandidate.github.enrichment_status === 'error' || selectedCandidate.github.enrichment_status === 'failed'
+                          ? 'API Error'
+                          : selectedCandidate.github.enrichment_status === 'no_username'
+                          ? 'No Handle'
+                          : selectedCandidate.github.enrichment_status || 'N/A'}
                       </span>
                     </div>
+
+                    {selectedCandidate.github.enrichment_summary && (
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.4, margin: '2px 0 4px' }}>
+                        {selectedCandidate.github.enrichment_summary}
+                      </div>
+                    )}
 
                     {selectedCandidate.github.username && (
                       <>

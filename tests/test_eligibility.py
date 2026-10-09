@@ -213,3 +213,149 @@ class TestEvaluateEligibility:
         assert result.is_eligible is True
         assert len(result.python_evidence) > 0
         assert len(result.ai_evidence) > 0
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for skills-only false positives & formatting edge cases
+# ---------------------------------------------------------------------------
+
+class TestSkillsOnlyFalsePositivesAndRegression:
+
+    def test_pytorch_tensorflow_keras_in_skills_only_rejected(self):
+        text = """
+        John Doe
+        johndoe@example.com
+        
+        SKILLS
+        • Languages: Python, C++
+        • Frameworks & Libraries: PyTorch, TensorFlow, Keras
+        • Databases: PostgreSQL, MongoDB
+        
+        EXPERIENCE
+        Backend Developer at Acme Corp (2023 - Present)
+        • Built scalable REST APIs with Python and FastAPI.
+        • Optimized database queries and managed PostgreSQL migrations.
+        """
+        resume = make_resume(text)
+        resume.project_descriptions = ["Built scalable REST APIs with Python and FastAPI."]
+        result = evaluate_eligibility(resume)
+        assert result.is_eligible is False
+        assert result.has_python is True
+        assert result.has_ai_evidence is False
+        assert any("only listed in skills" in r for r in result.rejection_reasons)
+
+    def test_rag_and_aipowered_in_skills_only_rejected(self):
+        text = """
+        TECHNICAL SKILLS
+        Python, RAG, AI-powered systems, Docker, AWS, Git
+        
+        PROJECTS
+        E-Commerce Platform: Built an online store using Django and React.
+        • Containerized application with Docker and set up CI/CD pipeline.
+        • Designed responsive product catalog with search filters.
+        """
+        resume = make_resume(text)
+        resume.project_descriptions = ["E-Commerce Platform: Built an online store using Django and React."]
+        result = evaluate_eligibility(resume)
+        assert result.is_eligible is False
+        assert result.has_python is True
+        assert result.has_ai_evidence is False
+        assert any("only listed in skills" in r for r in result.rejection_reasons)
+
+    def test_multiline_skills_section_bullet_points_rejected(self):
+        text = """
+        CORE COMPETENCIES:
+        - Python programming
+        - PyTorch, TensorFlow, Keras
+        - RAG, Vector Search, AI-powered tools
+        - Docker, Linux
+        
+        WORK EXPERIENCE:
+        Software Engineer
+        - Maintained customer billing portal using Django and Celery.
+        - Wrote automated unit tests with Pytest.
+        """
+        resume = make_resume(text)
+        resume.project_descriptions = ["Maintained customer billing portal using Django and Celery."]
+        result = evaluate_eligibility(resume)
+        assert result.is_eligible is False
+        assert result.has_ai_evidence is False
+
+    def test_valid_ai_project_with_pytorch_passes(self):
+        text = """
+        SKILLS
+        Python, PyTorch, OpenCV
+        
+        PROJECTS
+        Defect Classifier | Python, PyTorch
+        • Trained a convolutional neural network (CNN) in PyTorch on surface images with 94% accuracy.
+        • Deployed model inference pipeline using FastAPI for real-time defect alerts.
+        """
+        resume = make_resume(text)
+        resume.project_descriptions = [
+            "Trained a convolutional neural network (CNN) in PyTorch on surface images with 94% accuracy. "
+            "Deployed model inference pipeline using FastAPI for real-time defect alerts."
+        ]
+        result = evaluate_eligibility(resume)
+        assert result.is_eligible is True
+        assert result.has_python is True
+        assert result.has_ai_evidence is True
+        assert len(result.ai_evidence) > 0
+
+    def test_valid_rag_and_langchain_project_passes(self):
+        text = """
+        SKILLS: Python, FastAPI, Docker
+        
+        PROJECTS:
+        Document Q&A System:
+        • Implemented an end-to-end RAG pipeline using LangChain, OpenAI embeddings, and ChromaDB.
+        • Reduced query latency to 300ms and indexed 10,000 PDF pages.
+        """
+        resume = make_resume(text)
+        resume.project_descriptions = [
+            "Implemented an end-to-end RAG pipeline using LangChain, OpenAI embeddings, and ChromaDB. "
+            "Reduced query latency to 300ms and indexed 10,000 PDF pages."
+        ]
+        result = evaluate_eligibility(resume)
+        assert result.is_eligible is True
+        assert result.has_python is True
+        assert result.has_ai_evidence is True
+
+    def test_custom_ai_implementation_different_wording_passes(self):
+        text = """
+        SKILLS: Python, SQL
+        
+        EXPERIENCE:
+        Data Science Intern:
+        • Developed machine learning pipeline using random forest and gradient boosting for customer churn prediction.
+        • Conducted feature engineering and model evaluation achieving 0.88 AUC-ROC.
+        """
+        resume = make_resume(text)
+        resume.project_descriptions = [
+            "Developed machine learning pipeline using random forest and gradient boosting for customer churn prediction. "
+            "Conducted feature engineering and model evaluation achieving 0.88 AUC-ROC."
+        ]
+        result = evaluate_eligibility(resume)
+        assert result.is_eligible is True
+        assert result.has_ai_evidence is True
+
+    def test_both_skills_and_real_ai_project_passes(self):
+        text = """
+        TECHNICAL SKILLS:
+        Python, PyTorch, TensorFlow, Keras, RAG, FastAPI
+        
+        KEY PROJECTS:
+        Autonomous Driving Object Detection:
+        • Engineered real-time object detection model in PyTorch using YOLO architecture.
+        • Evaluated on test dataset with 91% mAP and deployed using ONNX runtime.
+        """
+        resume = make_resume(text)
+        resume.project_descriptions = [
+            "Engineered real-time object detection model in PyTorch using YOLO architecture. "
+            "Evaluated on test dataset with 91% mAP and deployed using ONNX runtime."
+        ]
+        result = evaluate_eligibility(resume)
+        assert result.is_eligible is True
+        assert result.has_python is True
+        assert result.has_ai_evidence is True
+
